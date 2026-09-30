@@ -5,6 +5,7 @@ of game logic.
 Task 1: vehicle collision detection uses the frog's and vehicles' real
 bounding rectangles.
 Task 2: three-life system with a visible hit/respawn state.
+Task 3: goal condition and score tracking.
 """
 
 import random
@@ -29,6 +30,8 @@ class GameEngine:
         self.lives = MAX_LIVES
         self.hit_until = 0
         self.game_over = False
+        self.won = False
+        self.score = 0
         self._build_entities()
 
     def _build_entities(self):
@@ -79,10 +82,12 @@ class GameEngine:
             self.lives = MAX_LIVES
             self.hit_until = 0
             self.game_over = False
+            self.won = False
+            self.score = 0
             self._build_entities()
             return
 
-        if self.game_over or self.is_hit():
+        if self.game_over or self.won or self.is_hit():
             return
 
         if key == pygame.K_UP:
@@ -98,7 +103,6 @@ class GameEngine:
         return self.hit_until > pygame.time.get_ticks()
 
     def update(self):
-        # Keep the hit visible briefly, then respawn the frog.
         if self.hit_until:
             if self.is_hit():
                 return
@@ -106,7 +110,7 @@ class GameEngine:
             self.frog.reset()
             self.hit_until = 0
 
-        if self.game_over:
+        if self.game_over or self.won:
             return
 
         for v in self.vehicles:
@@ -122,7 +126,8 @@ class GameEngine:
             return
 
         if self.frog.row == GOAL_ROW:
-            self.frog.reset()
+            self.score += 1
+            self.won = True
 
     def draw(self, surface, font):
         from game import renderer
@@ -144,11 +149,24 @@ class GameEngine:
         renderer.draw_text(
             surface,
             font,
+            f"Score: {self.score}",
+            (10, 34)
+        )
+
+        renderer.draw_text(
+            surface,
+            font,
             "Arrow keys to move. R to restart.",
             (10, HEIGHT - 24)
         )
 
-        if self.game_over:
+        if self.won:
+            renderer.draw_banner(
+                surface,
+                font,
+                "You Won! - Press R to restart"
+            )
+        elif self.game_over:
             renderer.draw_banner(
                 surface,
                 font,
