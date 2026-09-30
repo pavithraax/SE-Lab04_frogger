@@ -2,10 +2,9 @@
 GameEngine: owns the frog and all vehicles, and runs one frame's worth
 of game logic.
 
-Starter version: the frog can move, hop across the road, and reach the
-goal - but there's no lives system, no score, and no timer. Collision
-detection also has a known bug (see game/collisions.py) that Task 1
-asks you to fix.
+Task 1: vehicle collision detection uses the frog's and vehicles' real
+bounding rectangles.
+Task 2: three-life system with a visible hit/respawn state.
 """
 
 import random
@@ -19,11 +18,17 @@ from game.renderer import (
     GRID_COLS, GRID_ROWS, GOAL_ROW, ROAD_ROWS, START_ROW, CELL_SIZE, WIDTH, HEIGHT,
 )
 
-LANE_SPEEDS = [1.5, -2, 2, -2.5, 1.5, -2]   # one entry per road row, alternating direction
+LANE_SPEEDS = [1.5, -2, 2, -2.5, 1.5, -2]
+
+MAX_LIVES = 3
+HIT_DURATION_MS = 500
 
 
 class GameEngine:
     def __init__(self):
+        self.lives = MAX_LIVES
+        self.hit_until = 0
+        self.game_over = False
         self._build_entities()
 
     def _build_entities(self):
@@ -38,31 +43,48 @@ class GameEngine:
         self.vehicles = []
         for i, row in enumerate(ROAD_ROWS):
             speed = LANE_SPEEDS[i % len(LANE_SPEEDS)]
-            vehicle_width = 40 if i % 2 == 0 else 70   # mix of cars and wider trucks
+            vehicle_width = 40 if i % 2 == 0 else 70
             spacing = 300
             count = 2
 
-            # Try a few random phases and keep the first one that doesn't
-            # already overlap the frog's starting column - guarantees a
-            # safe first lane instead of leaving it to chance.
             for _attempt in range(20):
                 phase = random.randint(0, spacing - 1)
                 positions = []
                 safe = True
+
                 for n in range(count):
                     offset = phase + n * spacing
                     x = offset if speed > 0 else WIDTH - offset - vehicle_width
                     positions.append(x)
+
                     if not (x + vehicle_width <= frog_x_range[0] or x >= frog_x_range[1]):
                         safe = False
+
                 if safe:
                     break
 
             for x in positions:
-                self.vehicles.append(Vehicle(x=x, row=row, width=vehicle_width,
-                                              height=CELL_SIZE - 8, speed=speed))
+                self.vehicles.append(
+                    Vehicle(
+                        x=x,
+                        row=row,
+                        width=vehicle_width,
+                        height=CELL_SIZE - 8,
+                        speed=speed,
+                    )
+                )
 
     def handle_keydown(self, key):
+        if key == pygame.K_r:
+            self.lives = MAX_LIVES
+            self.hit_until = 0
+            self.game_over = False
+            self._build_entities()
+            return
+
+        if self.game_over or self.is_hit():
+            return
+
         if key == pygame.K_UP:
             self.frog.move(0, -1)
         elif key == pygame.K_DOWN:
@@ -71,20 +93,64 @@ class GameEngine:
             self.frog.move(-1, 0)
         elif key == pygame.K_RIGHT:
             self.frog.move(1, 0)
-        elif key == pygame.K_r:
-            self._build_entities()
+
+    def is_hit(self):
+        return self.hit_until > pygame.time.get_ticks()
 
     def update(self):
+        # Keep the hit visible briefly, then respawn the frog.
+        if self.hit_until:
+            if self.is_hit():
+                return
+
+            self.frog.reset()
+            self.hit_until = 0
+
+        if self.game_over:
+            return
+
         for v in self.vehicles:
             v.update(road_width_px=WIDTH)
 
         if check_collision(self.frog, self.vehicles):
-            self.frog.reset()
+            self.lives -= 1
+            self.hit_until = pygame.time.get_ticks() + HIT_DURATION_MS
+
+            if self.lives <= 0:
+                self.game_over = True
+
+            return
 
         if self.frog.row == GOAL_ROW:
             self.frog.reset()
 
     def draw(self, surface, font):
         from game import renderer
-        renderer.draw_scene(surface, self.frog, self.vehicles)
-        renderer.draw_text(surface, font, "Arrow keys to move. R to restart.", (10, HEIGHT - 24))
+
+        renderer.draw_scene(
+            surface,
+            self.frog,
+            self.vehicles,
+            hit=self.is_hit()
+        )
+
+        renderer.draw_text(
+            surface,
+            font,
+            f"Lives: {self.lives}",
+            (10, 10)
+        )
+
+        renderer.draw_text(
+            surface,
+            font,
+            "Arrow keys to move. R to restart.",
+            (10, HEIGHT - 24)
+        )
+
+        if self.game_over:
+            renderer.draw_banner(
+                surface,
+                font,
+                "Game Over - Press R to restart"
+            )
